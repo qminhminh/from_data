@@ -1,97 +1,81 @@
 # from_data
 
-`from_data` is a Flutter package that builds fully dynamic forms from JSON or Dart schemas. Define your form once as data, render it instantly in Flutter, and keep state management and validation consistent across the entire form.
+`from_data` is a Flutter library for rendering forms and managing state from schema-driven configuration. It lets you define complex forms in JSON or Dart maps and get a fully functional UI with validation, defaults, and extensibility.
 
 ## Features
 
-- Generate forms from `FormSchema` objects or raw JSON.
-- Support for common field types: text, number, email, password, multiline, dropdown, checkbox, and switch.
-- Built-in validation rules: required, min/max length, min/max value, regex pattern.
-- `FromDataController` keeps track of form values and exposes change notifications.
-- Plug-and-play layout customization and custom builders for bespoke widgets.
+- Schema-driven UI with support for text, number, email, password, multiline, dropdown, checkbox, and switch fields.
+- Automatic state management, value hydration, and validation via `FromDataController`.
+- Custom field builders and layout hooks so you can override specific field types.
+- Built-in read-only mode, scroll configuration, and autovalidation options.
 
-## Installation
+## Getting started
 
-Add the dependency to your Flutter project (example with a local path):
+Install the package with your preferred package manager:
 
-```yaml
-dependencies:
-  from_data:
-    path: ../from_data
+```bash
+flutter pub add from_data
 ```
 
-Run `flutter pub get` afterwards.
-
-## Quick Start
+Then import it where you need to render a form:
 
 ```dart
-import 'package:flutter/material.dart';
 import 'package:from_data/from_data.dart';
+```
 
+## Usage
+
+Create a `FormSchema` from configuration and render it with `FromDataForm`. The controller takes care of value changes, default states, and validation.
+
+```dart
 final schema = FormSchema.fromJson({
-  'title': 'Create Account',
+  'id': 'profile',
+  'title': 'Profile',
+  'description': 'Tell us about yourself',
   'fields': [
     {
       'id': 'name',
-      'label': 'Full name',
       'type': 'text',
+      'label': 'Full name',
       'required': true,
-      'validations': [
-        {'type': 'minLength', 'value': 3, 'message': 'Name must be at least 3 characters.'},
-      ],
     },
     {
       'id': 'email',
-      'label': 'Email',
       'type': 'email',
-      'required': true,
+      'label': 'Email',
       'validations': [
-        {'type': 'pattern', 'pattern': r'^[^@]+@[^@]+\.[^@]+$', 'message': 'Please enter a valid email.'},
+        {'type': 'pattern', 'pattern': r'.+@.+\..+'},
       ],
     },
     {
-      'id': 'plan',
-      'label': 'Plan',
-      'type': 'dropdown',
-      'options': [
-        {'value': 'free', 'label': 'Free', 'default': true},
-        {'value': 'pro', 'label': 'Pro'},
-      ],
-    },
-    {
-      'id': 'accept',
-      'label': 'I accept the terms',
-      'type': 'checkbox',
-      'required': true,
+      'id': 'newsletter',
+      'type': 'switcher',
+      'label': 'Subscribe to newsletter',
+      'initialValue': true,
     },
   ],
 });
 
-final formKey = GlobalKey<FromDataFormState>();
-
-class DemoForm extends StatelessWidget {
-  const DemoForm({super.key});
+class ProfileForm extends StatelessWidget {
+  const ProfileForm({super.key});
 
   @override
   Widget build(BuildContext context) {
     return FromDataForm(
-      key: formKey,
       schema: schema,
-      onChanged: (values) => debugPrint(values.toString()),
+      onChanged: (values) => debugPrint('Form values: $values'),
+      autovalidateMode: AutovalidateMode.onUserInteraction,
     );
   }
 }
 ```
 
-Call `formKey.currentState?.validate()` before submitting to ensure the input is valid and read results through `formKey.currentState?.values`.
+Need more advanced usage? Check the full example app in `example/lib/main.dart`.
 
-## Full Example
+## Additional information
 
-Check the `example/` directory for a complete sample app that renders the form, handles submission, and shows the captured data.
+We welcome contributions and ideas. Feel free to open an issue or pull request.
 
-## Contributing
-
-- Please open an issue or pull request when you need a new feature or find a bug.
-- Include reproduction steps or tests to speed up review.
-
-Happy form building with `from_data`!
+- Example app: `example/lib/main.dart`
+- Report issues: open a GitHub issue in this repository.
+- License: see `LICENSE`.
