@@ -4,18 +4,36 @@ import 'package:flutter/material.dart';
 import '../controller/from_data_controller.dart';
 import '../models/form_schema.dart';
 
-typedef FieldLayoutBuilder = Widget Function(
-  BuildContext context,
-  FormFieldSchema schema,
-  Widget child,
-);
+/// Builder function for customizing the layout of form fields.
+///
+/// This function is called for each form field to build a custom layout
+/// wrapper around the field widget. It receives the [BuildContext], the
+/// [FormFieldSchema] for the field, and the child widget to wrap.
+///
+/// Example:
+/// ```dart
+/// FieldLayoutBuilder(
+///   (context, schema, child) {
+///     return Padding(
+///       padding: EdgeInsets.symmetric(vertical: 8),
+///       child: child,
+///     );
+///   },
+/// )
+/// ```
+typedef FieldLayoutBuilder =
+    Widget Function(BuildContext context, FormFieldSchema schema, Widget child);
 
-typedef FromDataCustomBuilder = Widget Function(
-  BuildContext context,
-  FromDataCustomFieldContext field,
-);
+typedef FromDataCustomBuilder =
+    Widget Function(BuildContext context, FromDataCustomFieldContext field);
 
+/// Context provided to custom field builders.
+///
+/// Contains all the information and callbacks needed to build a custom
+/// form field widget, including the field schema, current value, change
+/// handler, read-only state, and the form controller.
 class FromDataCustomFieldContext {
+  /// Creates a new [FromDataCustomFieldContext].
   const FromDataCustomFieldContext({
     required this.schema,
     required this.value,
@@ -31,7 +49,26 @@ class FromDataCustomFieldContext {
   final FromDataController controller;
 }
 
+/// A widget that renders a form based on a [FormSchema].
+///
+/// Automatically generates form fields based on the schema, handles
+/// validation, state management, and value changes. Supports custom
+/// field builders and layout builders for extensibility.
+///
+/// Example:
+/// ```dart
+/// FromDataForm(
+///   schema: schema,
+///   onChanged: (values) => print(values),
+///   autovalidateMode: AutovalidateMode.onUserInteraction,
+/// )
+/// ```
 class FromDataForm extends StatefulWidget {
+  /// Creates a new [FromDataForm].
+  ///
+  /// The [schema] is required and defines the form structure. Optionally
+  /// provide a [controller] for external state management, [initialValues]
+  /// to pre-populate the form, and [onChanged] callback for value changes.
   const FromDataForm({
     super.key,
     required this.schema,
@@ -76,6 +113,9 @@ class FromDataFormState extends State<FromDataForm> {
   late FromDataController _controller;
   late bool _ownsController;
   final Map<String, TextEditingController> _textControllers = {};
+  final Map<String, List<FormFieldOption>> _dynamicOptions = {};
+  final Map<String, bool> _loadingOptions = {};
+  final Map<String, String?> _asyncValidationErrors = {};
 
   @override
   void initState() {
@@ -192,8 +232,7 @@ class FromDataFormState extends State<FromDataForm> {
       if (controller != null && controller.text != textValue) {
         controller
           ..text = textValue
-          ..selection =
-              TextSelection.collapsed(offset: textValue.length);
+          ..selection = TextSelection.collapsed(offset: textValue.length);
       } else if (controller == null) {
         _textControllers[field.id] = TextEditingController(text: textValue);
       }
@@ -205,18 +244,22 @@ class FromDataFormState extends State<FromDataForm> {
     final children = <Widget>[];
 
     if (widget.schema.title != null) {
-      children.add(Text(
-        widget.schema.title!,
-        style: Theme.of(context).textTheme.titleLarge,
-      ));
+      children.add(
+        Text(
+          widget.schema.title!,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+      );
       children.add(const SizedBox(height: 8));
     }
 
     if (widget.schema.description != null) {
-      children.add(Text(
-        widget.schema.description!,
-        style: Theme.of(context).textTheme.bodyMedium,
-      ));
+      children.add(
+        Text(
+          widget.schema.description!,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+      );
       children.add(const SizedBox(height: 16));
     }
 
@@ -244,30 +287,24 @@ class FromDataFormState extends State<FromDataForm> {
       );
     }
 
-    return Padding(
-      padding: widget.padding ?? EdgeInsets.zero,
-      child: form,
-    );
+    return Padding(padding: widget.padding ?? EdgeInsets.zero, child: form);
   }
 
-  Widget _wrapField(
-    BuildContext context,
-    FormFieldSchema field,
-    Widget child,
-  ) {
+  Widget _wrapField(BuildContext context, FormFieldSchema field, Widget child) {
     if (widget.fieldLayoutBuilder != null) {
       return widget.fieldLayoutBuilder!(context, field, child);
     }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: child,
-    );
+    return Padding(padding: const EdgeInsets.only(bottom: 16), child: child);
   }
 
   Widget? _buildField(BuildContext context, FormFieldSchema field) {
     if (widget.customBuilders != null &&
         widget.customBuilders!.containsKey(field.type)) {
-      return _buildCustomField(context, field, widget.customBuilders![field.type]!);
+      return _buildCustomField(
+        context,
+        field,
+        widget.customBuilders![field.type]!,
+      );
     }
 
     switch (field.type) {
@@ -284,6 +321,12 @@ class FromDataFormState extends State<FromDataForm> {
         return _buildCheckboxField(context, field);
       case FormFieldType.switcher:
         return _buildSwitchField(context, field);
+      case FormFieldType.date:
+        return _buildDateField(context, field);
+      case FormFieldType.time:
+        return _buildTimeField(context, field);
+      case FormFieldType.datetime:
+        return _buildDateTimeField(context, field);
     }
   }
 
@@ -318,8 +361,8 @@ class FromDataFormState extends State<FromDataForm> {
                 child: Text(
                   state.errorText ?? '',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                 ),
               ),
           ],
@@ -329,7 +372,8 @@ class FromDataFormState extends State<FromDataForm> {
   }
 
   Widget _buildTextField(BuildContext context, FormFieldSchema field) {
-    final controller = _textControllers[field.id] ??
+    final controller =
+        _textControllers[field.id] ??
         TextEditingController(
           text: _controller.valueOf(field.id)?.toString() ?? '',
         );
@@ -347,13 +391,29 @@ class FromDataFormState extends State<FromDataForm> {
       minLines: field.type == FormFieldType.multiline ? 3 : 1,
       maxLines: field.type == FormFieldType.multiline ? null : 1,
       keyboardType: _keyboardTypeFor(field.type),
-      validator: (value) => field.validate(value),
-      onChanged: (value) => _controller.setValue(field.id, value),
+      validator: (value) {
+        final syncError = field.validate(value);
+        if (syncError != null) {
+          return syncError;
+        }
+
+        // Check for async validation errors (set separately)
+        final asyncError = _asyncValidationErrors[field.id];
+        if (asyncError != null) {
+          return asyncError;
+        }
+
+        return null;
+      },
+      onChanged: (value) {
+        _controller.setValue(field.id, value);
+      },
     );
   }
 
   Widget _buildNumberField(BuildContext context, FormFieldSchema field) {
-    final controller = _textControllers[field.id] ??
+    final controller =
+        _textControllers[field.id] ??
         TextEditingController(
           text: _controller.valueOf(field.id)?.toString() ?? '',
         );
@@ -368,40 +428,84 @@ class FromDataFormState extends State<FromDataForm> {
         helperText: field.description,
       ),
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      validator: (value) => field.validate(_tryParseNum(value)),
+      validator: (value) {
+        final parsed = _tryParseNum(value);
+        return field.validate(parsed);
+      },
       onChanged: (value) {
         final parsed = _tryParseNum(value);
-        _controller.setValue(field.id, value.trim().isEmpty ? null : parsed ?? value);
+        _controller.setValue(
+          field.id,
+          value.trim().isEmpty ? null : parsed ?? value,
+        );
       },
     );
   }
 
   Widget _buildDropdownField(BuildContext context, FormFieldSchema field) {
-    final currentValue =
-        (_controller.valueOf(field.id) ?? field.options.firstOrNull?.value)
-            ?.toString();
-    return DropdownButtonFormField<String>(
-      value: field.options.any((option) => option.value == currentValue)
-          ? currentValue
-          : null,
-      items: field.options
-          .map(
-            (option) => DropdownMenuItem<String>(
-              value: option.value,
-              child: Text(option.label),
+    final currentValue = _controller.valueOf(field.id);
+
+    // Use dynamic options if available
+    final options = _dynamicOptions[field.id] ?? field.options;
+    final isLoading = _loadingOptions[field.id] ?? false;
+
+    if (isLoading) {
+      return DropdownButtonFormField<dynamic>(
+        value: null,
+        items: const [],
+        decoration: InputDecoration(
+          labelText: field.label,
+          helperText: field.description ?? 'Đang tải...',
+          suffixIcon: Padding(
+            padding: EdgeInsets.all(12.0),
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
             ),
-          )
-          .toList(),
+          ),
+        ),
+        onChanged: null,
+      );
+    }
+
+    // Find matching option value
+    dynamic selectedValue;
+    try {
+      final matchingOption = options.firstWhere(
+        (option) => option.valueEquals(currentValue),
+        orElse:
+            () =>
+                options.firstOrNull ??
+                const FormFieldOption(value: null, label: ''),
+      );
+      selectedValue = matchingOption.value;
+    } catch (e) {
+      selectedValue = null;
+    }
+
+    return DropdownButtonFormField<dynamic>(
+      value: selectedValue,
+      items:
+          options
+              .map(
+                (option) => DropdownMenuItem<dynamic>(
+                  value: option.value,
+                  child: Text(option.label),
+                ),
+              )
+              .toList(),
       decoration: InputDecoration(
         labelText: field.label,
         helperText: field.description,
       ),
       validator: (value) => field.validate(value),
-      onChanged: widget.readOnly || field.readOnly
-          ? null
-          : (value) {
-              _controller.setValue(field.id, value);
-            },
+      onChanged:
+          widget.readOnly || field.readOnly
+              ? null
+              : (value) {
+                _controller.setValue(field.id, value);
+              },
     );
   }
 
@@ -417,25 +521,26 @@ class FromDataFormState extends State<FromDataForm> {
           children: [
             CheckboxListTile(
               value: state.value ?? false,
-              onChanged: widget.readOnly || field.readOnly
-                  ? null
-                  : (value) {
-                      final resolvedValue = value ?? false;
-                      state.didChange(resolvedValue);
-                      _controller.setValue(field.id, resolvedValue);
-                    },
+              onChanged:
+                  widget.readOnly || field.readOnly
+                      ? null
+                      : (value) {
+                        final resolvedValue = value ?? false;
+                        state.didChange(resolvedValue);
+                        _controller.setValue(field.id, resolvedValue);
+                      },
               title: Text(field.label),
-              subtitle: field.description != null
-                  ? Text(field.description!)
-                  : null,
+              subtitle:
+                  field.description != null ? Text(field.description!) : null,
               controlAffinity: ListTileControlAffinity.leading,
-              secondary: hasError
-                  ? Icon(
-                      Icons.error_outline,
-                      color: Theme.of(context).colorScheme.error,
-                      size: 30,
-                    )
-                  : null,
+              secondary:
+                  hasError
+                      ? Icon(
+                        Icons.error_outline,
+                        color: Theme.of(context).colorScheme.error,
+                        size: 30,
+                      )
+                      : null,
               contentPadding: EdgeInsets.zero,
             ),
             if (hasError)
@@ -444,8 +549,8 @@ class FromDataFormState extends State<FromDataForm> {
                 child: Text(
                   state.errorText ?? '',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                 ),
               ),
           ],
@@ -466,23 +571,24 @@ class FromDataFormState extends State<FromDataForm> {
           children: [
             SwitchListTile(
               value: state.value ?? false,
-              onChanged: widget.readOnly || field.readOnly
-                  ? null
-                  : (value) {
-                      state.didChange(value);
-                      _controller.setValue(field.id, value);
-                    },
+              onChanged:
+                  widget.readOnly || field.readOnly
+                      ? null
+                      : (value) {
+                        state.didChange(value);
+                        _controller.setValue(field.id, value);
+                      },
               title: Text(field.label),
-              subtitle: field.description != null
-                  ? Text(field.description!)
-                  : null,
-              secondary: hasError
-                  ? Icon(
-                      Icons.error_outline,
-                      color: Theme.of(context).colorScheme.error,
-                      size: 30,
-                    )
-                  : null,
+              subtitle:
+                  field.description != null ? Text(field.description!) : null,
+              secondary:
+                  hasError
+                      ? Icon(
+                        Icons.error_outline,
+                        color: Theme.of(context).colorScheme.error,
+                        size: 30,
+                      )
+                      : null,
               contentPadding: EdgeInsets.zero,
             ),
             if (hasError)
@@ -491,10 +597,227 @@ class FromDataFormState extends State<FromDataForm> {
                 child: Text(
                   state.errorText ?? '',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                 ),
               ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDateField(BuildContext context, FormFieldSchema field) {
+    final currentValue = _controller.valueOf(field.id);
+    DateTime? selectedDate;
+    if (currentValue is String) {
+      selectedDate = DateTime.tryParse(currentValue);
+    } else if (currentValue is DateTime) {
+      selectedDate = currentValue;
+    }
+
+    return FormField<DateTime>(
+      initialValue: selectedDate,
+      validator: (value) => field.validate(value?.toIso8601String()),
+      autovalidateMode: widget.autovalidateMode,
+      builder: (state) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              onTap:
+                  widget.readOnly || field.readOnly
+                      ? null
+                      : () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate ?? DateTime.now(),
+                          firstDate: DateTime(1900),
+                          lastDate: DateTime(2100),
+                        );
+                        if (date != null) {
+                          state.didChange(date);
+                          _controller.setValue(
+                            field.id,
+                            date.toIso8601String(),
+                          );
+                        }
+                      },
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: field.label,
+                  hintText: field.hint ?? field.placeholder ?? 'Chọn ngày',
+                  helperText: field.description,
+                  errorText: state.hasError ? state.errorText : null,
+                  suffixIcon: const Icon(Icons.calendar_today),
+                ),
+                child: Text(
+                  selectedDate != null
+                      ? '${selectedDate!.day}/${selectedDate!.month}/${selectedDate!.year}'
+                      : field.hint ?? field.placeholder ?? 'Chọn ngày',
+                  style:
+                      selectedDate != null
+                          ? null
+                          : TextStyle(color: Theme.of(context).hintColor),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildTimeField(BuildContext context, FormFieldSchema field) {
+    final currentValue = _controller.valueOf(field.id);
+    TimeOfDay? selectedTime;
+    if (currentValue is String) {
+      final parts = currentValue.split(':');
+      if (parts.length >= 2) {
+        final hour = int.tryParse(parts[0]);
+        final minute = int.tryParse(parts[1]);
+        if (hour != null && minute != null) {
+          selectedTime = TimeOfDay(hour: hour, minute: minute);
+        }
+      }
+    }
+
+    return FormField<TimeOfDay>(
+      initialValue: selectedTime,
+      validator:
+          (value) => field.validate(
+            value != null ? '${value.hour}:${value.minute}' : null,
+          ),
+      autovalidateMode: widget.autovalidateMode,
+      builder: (state) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              onTap:
+                  widget.readOnly || field.readOnly
+                      ? null
+                      : () async {
+                        final time = await showTimePicker(
+                          context: context,
+                          initialTime: selectedTime ?? TimeOfDay.now(),
+                        );
+                        if (time != null) {
+                          state.didChange(time);
+                          _controller.setValue(
+                            field.id,
+                            '${time.hour}:${time.minute}',
+                          );
+                        }
+                      },
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: field.label,
+                  hintText: field.hint ?? field.placeholder ?? 'Chọn giờ',
+                  helperText: field.description,
+                  errorText: state.hasError ? state.errorText : null,
+                  suffixIcon: const Icon(Icons.access_time),
+                ),
+                child: Text(
+                  selectedTime != null
+                      ? selectedTime!.format(context)
+                      : field.hint ?? field.placeholder ?? 'Chọn giờ',
+                  style:
+                      selectedTime != null
+                          ? null
+                          : TextStyle(color: Theme.of(context).hintColor),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDateTimeField(BuildContext context, FormFieldSchema field) {
+    final currentValue = _controller.valueOf(field.id);
+    DateTime? selectedDateTime;
+    if (currentValue is String) {
+      selectedDateTime = DateTime.tryParse(currentValue);
+    } else if (currentValue is DateTime) {
+      selectedDateTime = currentValue;
+    }
+
+    return FormField<DateTime>(
+      initialValue: selectedDateTime,
+      validator: (value) => field.validate(value?.toIso8601String()),
+      autovalidateMode: widget.autovalidateMode,
+      builder: (state) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap:
+                        widget.readOnly || field.readOnly
+                            ? null
+                            : () async {
+                              final date = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDateTime ?? DateTime.now(),
+                                firstDate: DateTime(1900),
+                                lastDate: DateTime(2100),
+                              );
+                              if (date != null) {
+                                final time = await showTimePicker(
+                                  context: context,
+                                  initialTime:
+                                      selectedDateTime != null
+                                          ? TimeOfDay(
+                                            hour: selectedDateTime!.hour,
+                                            minute: selectedDateTime!.minute,
+                                          )
+                                          : TimeOfDay.now(),
+                                );
+                                if (time != null) {
+                                  final dateTime = DateTime(
+                                    date.year,
+                                    date.month,
+                                    date.day,
+                                    time.hour,
+                                    time.minute,
+                                  );
+                                  state.didChange(dateTime);
+                                  _controller.setValue(
+                                    field.id,
+                                    dateTime.toIso8601String(),
+                                  );
+                                }
+                              }
+                            },
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: field.label,
+                        hintText:
+                            field.hint ?? field.placeholder ?? 'Chọn ngày giờ',
+                        helperText: field.description,
+                        errorText: state.hasError ? state.errorText : null,
+                        suffixIcon: const Icon(Icons.calendar_today),
+                      ),
+                      child: Text(
+                        selectedDateTime != null
+                            ? '${selectedDateTime!.day}/${selectedDateTime!.month}/${selectedDateTime!.year} ${selectedDateTime!.hour}:${selectedDateTime!.minute.toString().padLeft(2, '0')}'
+                            : field.hint ??
+                                field.placeholder ??
+                                'Chọn ngày giờ',
+                        style:
+                            selectedDateTime != null
+                                ? null
+                                : TextStyle(color: Theme.of(context).hintColor),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
         );
       },
@@ -507,8 +830,7 @@ class FromDataFormState extends State<FromDataForm> {
       FormFieldType.email ||
       FormFieldType.password ||
       FormFieldType.multiline ||
-      FormFieldType.number =>
-        true,
+      FormFieldType.number => true,
       _ => false,
     };
   }
@@ -550,4 +872,3 @@ extension<T> on Iterable<T> {
     return first;
   }
 }
-

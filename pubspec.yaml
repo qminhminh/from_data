@@ -1,9 +1,8 @@
 name: from_data
 description: "Flutter library for generating dynamic forms driven by schema data with automatic field rendering, validation, and state management."
-version: 0.1.0
-
-
-github: https://github.com/qminhminh/from_data.git
+version: 0.3.4
+homepage: https://github.com/qminhminh/from_data
+repository: https://github.com/qminhminh/from_data.git
 
 environment:
   sdk: ^3.7.2
